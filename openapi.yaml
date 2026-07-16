@@ -1,0 +1,756 @@
+openapi: 3.0.3
+info:
+  title: Stadium Congestion Forecasting System API
+  version: 1.0.0
+  description: >
+    Real-time stadium gate congestion forecasting, ranked ops recommendations,
+    shuttle redirection advice, and simulated fan nudges.
+
+
+    All routes except `/healthz` require an API key (see the `apiKeyAuth`
+    security scheme below). The key may be presented as either
+    `Authorization: Bearer <key>` or `X-API-Key: <key>`.
+
+
+    In addition to the REST endpoints documented here, the server exposes a
+    WebSocket endpoint at `/v1/dashboard/stream` that pushes live gate
+    snapshot/alert updates to connected clients. WebSocket is not represented
+    in this OpenAPI document since OpenAPI 3.0 has no native WS support.
+    Authenticate the WebSocket handshake by passing the API key as a query
+    parameter: `wss://<host>/v1/dashboard/stream?apiKey=<key>` (required
+    because browsers cannot set custom headers on the WebSocket handshake).
+    Allowed roles for the stream are the same as `GET /v1/dashboard/gates`.
+
+servers:
+  - url: http://localhost:3000
+
+security:
+  - apiKeyAuth: []
+
+paths:
+  /healthz:
+    get:
+      summary: Liveness check
+      description: Unauthenticated liveness probe. Performs no dependency checks.
+      security: []
+      responses:
+        "200":
+          description: Service is up
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    example: ok
+
+  /v1/signals:
+    post:
+      summary: Ingest a raw signal event
+      description: Accepts a raw Gate_Counter / Ticket_Scanner / Transit_Feed signal payload.
+      security:
+        - apiKeyAuth: [INGESTION_SOURCE]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RawSignalPayload"
+      responses:
+        "202":
+          description: Signal accepted and parsed
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  signalId:
+                    type: string
+        "400":
+          description: Validation error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ValidationErrorResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailable"
+
+  /v1/sources/{gateOrRouteId}/status:
+    get:
+      summary: Get per-source health status for a gate or route
+      security:
+        - apiKeyAuth: [VENUE_OPS_MANAGER, GATE_STAFF, TRANSIT_DISPATCHER, AUDITOR]
+      parameters:
+        - $ref: "#/components/parameters/GateOrRouteId"
+      responses:
+        "200":
+          description: Per-source active/degraded status
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: object
+                  properties:
+                    source:
+                      type: string
+                      enum: [GATE_COUNTER, TICKET_SCANNER, TRANSIT_FEED]
+                    status:
+                      type: string
+                      enum: [active, degraded]
+                    lastSeenAt:
+                      type: string
+                      format: date-time
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailable"
+
+  /v1/gates/{gateId}/forecast:
+    get:
+      summary: Get the current congestion forecast for a gate
+      security:
+        - apiKeyAuth: [VENUE_OPS_MANAGER, GATE_STAFF, TRANSIT_DISPATCHER, AUDITOR]
+      parameters:
+        - $ref: "#/components/parameters/GateId"
+      responses:
+        "200":
+          description: Forecast points over the 15-minute horizon
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/CongestionScorePoint"
+        "404":
+          description: Forecast not found
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailable"
+
+  /v1/gates/{gateId}/actions:
+    get:
+      summary: Get ranked recommended actions for a gate
+      security:
+        - apiKeyAuth: [VENUE_OPS_MANAGER, GATE_STAFF, AUDITOR]
+      parameters:
+        - $ref: "#/components/parameters/GateId"
+      responses:
+        "200":
+          description: Ranked recommended actions
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/RecommendedAction"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailable"
+
+  /v1/gates/{gateId}/actions/{actionId}/execute:
+    post:
+      summary: Mark a recommended action as executed
+      security:
+        - apiKeyAuth: [VENUE_OPS_MANAGER, GATE_STAFF]
+      parameters:
+        - $ref: "#/components/parameters/GateId"
+        - name: actionId
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [userId]
+              properties:
+                userId:
+                  type: string
+      responses:
+        "200":
+          description: Action marked executed
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RecommendedAction"
+        "404":
+          description: Action not found
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailable"
+
+  /v1/routes/{routeId}/redirections:
+    get:
+      summary: Get active shuttle redirection recommendations for a route
+      security:
+        - apiKeyAuth: [TRANSIT_DISPATCHER, AUDITOR]
+      parameters:
+        - $ref: "#/components/parameters/RouteId"
+      responses:
+        "200":
+          description: Active redirection recommendations
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/ShuttleRedirectionRecommendation"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailable"
+
+  /v1/routes/{routeId}/redirections/{recId}/accept:
+    post:
+      summary: Accept a shuttle redirection recommendation
+      security:
+        - apiKeyAuth: [TRANSIT_DISPATCHER]
+      parameters:
+        - $ref: "#/components/parameters/RouteId"
+        - name: recId
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [dispatcherId]
+              properties:
+                dispatcherId:
+                  type: string
+      responses:
+        "200":
+          description: Redirection accepted
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ShuttleRedirectionRecommendation"
+        "404":
+          description: Redirection not found
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailable"
+
+  /v1/routes/{routeId}/redirections/{recId}/reject:
+    post:
+      summary: Reject a shuttle redirection recommendation
+      security:
+        - apiKeyAuth: [TRANSIT_DISPATCHER]
+      parameters:
+        - $ref: "#/components/parameters/RouteId"
+        - name: recId
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [dispatcherId]
+              properties:
+                dispatcherId:
+                  type: string
+      responses:
+        "200":
+          description: Redirection rejected
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ShuttleRedirectionRecommendation"
+        "404":
+          description: Redirection not found
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailable"
+
+  /v1/nudges:
+    get:
+      summary: Query fan nudges
+      security:
+        - apiKeyAuth: [VENUE_OPS_MANAGER, AUDITOR]
+      parameters:
+        - name: gateId
+          in: query
+          required: false
+          schema:
+            type: string
+        - name: fanId
+          in: query
+          required: false
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Matching fan nudges
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/FanNudge"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailable"
+
+  /v1/dashboard/gates:
+    get:
+      summary: Get the live dashboard snapshot for all demo gates
+      security:
+        - apiKeyAuth: [VENUE_OPS_MANAGER, GATE_STAFF, TRANSIT_DISPATCHER, AUDITOR]
+      responses:
+        "200":
+          description: Per-gate snapshot (score, active actions, data-quality flags)
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: object
+                  properties:
+                    gateId:
+                      type: string
+                    currentScore:
+                      $ref: "#/components/schemas/CongestionScorePoint"
+                    activeActions:
+                      type: array
+                      items:
+                        $ref: "#/components/schemas/RecommendedAction"
+                    hasDegradedSource:
+                      type: boolean
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailable"
+
+  /v1/alerts/{alertId}/acknowledge:
+    post:
+      summary: Acknowledge a dashboard alert
+      security:
+        - apiKeyAuth: [VENUE_OPS_MANAGER, TRANSIT_DISPATCHER]
+      parameters:
+        - name: alertId
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [userId]
+              properties:
+                userId:
+                  type: string
+      responses:
+        "200":
+          description: Alert acknowledged
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Alert"
+        "404":
+          description: Alert not found
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailable"
+
+  /v1/audit/scores:
+    get:
+      summary: Query the congestion score audit trail
+      security:
+        - apiKeyAuth: [VENUE_OPS_MANAGER, AUDITOR]
+      parameters:
+        - $ref: "#/components/parameters/AuditGateId"
+        - $ref: "#/components/parameters/AuditFrom"
+        - $ref: "#/components/parameters/AuditTo"
+      responses:
+        "200":
+          description: Matching score audit records
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/ScoreAuditRecord"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailable"
+
+  /v1/audit/actions:
+    get:
+      summary: Query the recommended-action audit trail
+      security:
+        - apiKeyAuth: [VENUE_OPS_MANAGER, AUDITOR]
+      parameters:
+        - $ref: "#/components/parameters/AuditGateId"
+        - $ref: "#/components/parameters/AuditFrom"
+        - $ref: "#/components/parameters/AuditTo"
+      responses:
+        "200":
+          description: Matching action audit records
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/RecommendedAction"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailable"
+
+  /v1/audit/nudges:
+    get:
+      summary: Query the fan nudge audit trail
+      security:
+        - apiKeyAuth: [VENUE_OPS_MANAGER, AUDITOR]
+      parameters:
+        - name: fanId
+          in: query
+          required: false
+          schema:
+            type: string
+        - $ref: "#/components/parameters/AuditGateId"
+        - $ref: "#/components/parameters/AuditFrom"
+        - $ref: "#/components/parameters/AuditTo"
+      responses:
+        "200":
+          description: Matching nudge audit records
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/FanNudge"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailable"
+
+components:
+  securitySchemes:
+    apiKeyAuth:
+      type: apiKey
+      in: header
+      name: Authorization
+      description: >
+        Pass the API key as `Authorization: Bearer <key>`. As an alternative,
+        the server also accepts the same key via an `X-API-Key: <key>`
+        header. Roles listed per-operation (in brackets after the scheme
+        name) indicate which of the key's configured roles satisfy that
+        operation; keys are configured server-side as comma-separated
+        `key:role[+role...]` pairs.
+
+  parameters:
+    GateId:
+      name: gateId
+      in: path
+      required: true
+      schema:
+        type: string
+    RouteId:
+      name: routeId
+      in: path
+      required: true
+      schema:
+        type: string
+    GateOrRouteId:
+      name: gateOrRouteId
+      in: path
+      required: true
+      schema:
+        type: string
+    AuditGateId:
+      name: gateId
+      in: query
+      required: false
+      schema:
+        type: string
+    AuditFrom:
+      name: from
+      in: query
+      required: false
+      schema:
+        type: string
+        format: date-time
+    AuditTo:
+      name: to
+      in: query
+      required: false
+      schema:
+        type: string
+        format: date-time
+
+  responses:
+    Unauthorized:
+      description: Missing or unrecognized API key
+      content:
+        application/json:
+          schema:
+            type: object
+            properties:
+              error:
+                type: string
+                example: Unauthorized
+    Forbidden:
+      description: API key valid but lacks a required role
+      content:
+        application/json:
+          schema:
+            type: object
+            properties:
+              error:
+                type: string
+                example: Forbidden
+    ServiceUnavailable:
+      description: Downstream dependency failure
+      content:
+        application/json:
+          schema:
+            type: object
+            properties:
+              error:
+                type: string
+                example: Service unavailable
+
+  schemas:
+    RawSignalPayload:
+      type: object
+      description: >
+        Raw signal payload as posted by a Gate_Counter, Ticket_Scanner, or
+        Transit_Feed source. Shape varies by `source`; see
+        src/types/models.ts for the full discriminated union.
+      properties:
+        source:
+          type: string
+          enum: [GATE_COUNTER, TICKET_SCANNER, TRANSIT_FEED]
+        gateId:
+          type: string
+        routeId:
+          type: string
+        timestamp:
+          type: string
+          format: date-time
+        payload:
+          type: object
+          description: Source-specific payload body (count/intervalSeconds, fanId, or estimatedPassengerCount/destination fields).
+
+    ValidationErrorResponse:
+      type: object
+      properties:
+        error:
+          type: object
+          properties:
+            source:
+              type: string
+            reason:
+              type: string
+            offendingField:
+              type: string
+            rawPayload: {}
+
+    CongestionScorePoint:
+      type: object
+      properties:
+        gateId:
+          type: string
+        forecastTime:
+          type: string
+          format: date-time
+        offsetMinutes:
+          type: number
+        score:
+          type: number
+        riskLevel:
+          type: string
+          enum: [LOW, MODERATE, HIGH, CRITICAL]
+        lowConfidence:
+          type: boolean
+        outdated:
+          type: boolean
+
+    RecommendedAction:
+      type: object
+      properties:
+        actionId:
+          type: string
+        gateId:
+          type: string
+        actionType:
+          type: string
+          enum: [OPEN_GATE_LANE, REDIRECT_SHUTTLE_ROUTE, HOLD_TRANSIT_ARRIVAL, FAN_NUDGE_CAMPAIGN]
+        actionRank:
+          type: integer
+        explanation:
+          type: string
+        targetGateId:
+          type: string
+        targetRouteId:
+          type: string
+        generatedAt:
+          type: string
+          format: date-time
+        executedAt:
+          type: string
+          format: date-time
+        executedByUserId:
+          type: string
+
+    ShuttleRedirectionRecommendation:
+      type: object
+      properties:
+        recommendationId:
+          type: string
+        routeId:
+          type: string
+        originGateId:
+          type: string
+        alternativeGateId:
+          type: string
+        explanation:
+          type: string
+        generatedAt:
+          type: string
+          format: date-time
+        status:
+          type: string
+          enum: [PENDING, ACCEPTED, REJECTED]
+        acceptedAt:
+          type: string
+          format: date-time
+        acceptedByDispatcherId:
+          type: string
+        rejectedAt:
+          type: string
+          format: date-time
+        rejectedByDispatcherId:
+          type: string
+
+    FanNudge:
+      type: object
+      properties:
+        nudgeId:
+          type: string
+        fanId:
+          type: string
+        originGateId:
+          type: string
+        alternativeGateId:
+          type: string
+        alternativeArrivalTime:
+          type: string
+          format: date-time
+        alternativeRouteId:
+          type: string
+        message:
+          type: string
+        generatedAt:
+          type: string
+          format: date-time
+        simulatedDeliveryTimestamp:
+          type: string
+          format: date-time
+        status:
+          type: string
+          enum: [QUEUED, SIMULATED_DELIVERED, CANCELLED]
+
+    Alert:
+      type: object
+      properties:
+        alertId:
+          type: string
+        gateId:
+          type: string
+        alertType:
+          type: string
+          enum: [RISK_LEVEL, DATA_QUALITY]
+        raisedAt:
+          type: string
+          format: date-time
+        riskLevel:
+          type: string
+          enum: [LOW, MODERATE, HIGH, CRITICAL]
+        affectedSources:
+          type: array
+          items:
+            type: string
+            enum: [GATE_COUNTER, TICKET_SCANNER, TRANSIT_FEED]
+        acknowledgedAt:
+          type: string
+          format: date-time
+        acknowledgedByUserId:
+          type: string
+
+    ScoreAuditRecord:
+      type: object
+      properties:
+        gateId:
+          type: string
+        timestamp:
+          type: string
+          format: date-time
+        score:
+          type: number
+        riskLevel:
+          type: string
+          enum: [LOW, MODERATE, HIGH, CRITICAL]
+        contributingSignalIds:
+          type: array
+          items:
+            type: string
+        contributingSignalLateArrivalFlags:
+          type: object
+          additionalProperties:
+            type: boolean

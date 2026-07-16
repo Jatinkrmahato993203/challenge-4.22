@@ -1,0 +1,43 @@
+version: "3.8"
+
+# Local integration-test infrastructure for the Stadium Congestion
+# Forecasting System (design.md Technology Choices: Kafka, Redis,
+# TimescaleDB). Used by tests/integration/*.test.ts.
+#
+# Start with: docker compose up -d
+# Stop with:  docker compose down -v
+
+services:
+  zookeeper:
+    image: confluentinc/cp-zookeeper:7.6.1
+    environment:
+      ZOOKEEPER_CLIENT_PORT: 2181
+      ZOOKEEPER_TICK_TIME: 2000
+    ports:
+      - "2181:2181"
+
+  kafka:
+    image: confluentinc/cp-kafka:7.6.1
+    depends_on:
+      - zookeeper
+    ports:
+      - "9092:9092"
+    environment:
+      KAFKA_BROKER_ID: 1
+      KAFKA_ZOOKEEPER_CONNECT: zookeeper:2181
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://localhost:9092
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+
+  redis:
+    image: redis:7.4-alpine
+    ports:
+      - "6379:6379"
+
+  timescaledb:
+    image: timescale/timescaledb:2.16.1-pg16
+    ports:
+      - "5432:5432"
+    environment:
+      POSTGRES_USER: congestion
+      POSTGRES_PASSWORD: congestion
+      POSTGRES_DB: congestion_forecasting

@@ -1,0 +1,50 @@
+# CI: installs deps, type-checks, builds, and runs the property/unit
+# test suite under src/**/*.test.ts.
+#
+# NOTE: tests/integration/* is intentionally excluded from this job.
+# Those tests require the docker-compose stack (Kafka, Redis,
+# TimescaleDB) defined at the repo root docker-compose.yml, which is
+# not currently provisioned in this CI environment. A follow-up job
+# could add `docker compose up -d` plus a wait-for-healthy step for
+# each service before running the full suite (including
+# tests/integration) once that infrastructure is available in CI.
+
+name: CI
+
+on:
+  push:
+    branches:
+      - "**"
+  pull_request:
+    branches:
+      - "**"
+
+jobs:
+  build-and-test:
+    runs-on: ubuntu-latest
+
+    strategy:
+      matrix:
+        node-version: [20.x]
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js ${{ matrix.node-version }}
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node-version }}
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Type check
+        run: npm run typecheck
+
+      - name: Build
+        run: npm run build
+
+      - name: Run unit / property tests (excludes tests/integration)
+        run: npx vitest run --exclude "tests/integration/**"

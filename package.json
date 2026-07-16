@@ -1,0 +1,38 @@
+{
+  "name": "stadium-congestion-forecasting",
+  "version": "1.0.0",
+  "description": "Real-time stadium gate congestion forecasting and recommendation system",
+  "type": "module",
+  "private": true,
+  "scripts": {
+    "build": "tsc -p tsconfig.json --noEmit false",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "start": "node dist/server.js",
+    "dev": "tsx src/server.ts",
+    "test": "vitest run",
+    "test:watch": "vitest"
+  },
+  "ts-node": {
+    "esm": true,
+    "experimentalResolver": true
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "dependencies": {
+    "express": "5.2.1",
+    "ioredis": "5.4.1",
+    "ws": "8.21.1",
+    "zod": "3.23.8"
+  },
+  "devDependencies": {
+    "@types/express": "^5.0.6",
+    "@types/node": "22.9.0",
+    "@types/ws": "^8.18.1",
+    "fast-check": "3.22.0",
+    "ts-node": "^10.9.2",
+    "tsx": "^4.23.1",
+    "typescript": "5.6.3",
+    "vitest": "2.1.4"
+  }
+}

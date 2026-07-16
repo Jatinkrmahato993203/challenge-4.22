@@ -1,0 +1,33 @@
+{
+  "pbtResults": {
+    "7.2 Write property test for Moderate-or-higher-risk generating at least one action in `src/recommendation-engine/recommendations.property15.test.ts`": {
+      "status": "passed",
+      "lastRunTimestamp": 1784194230346
+    },
+    "7.3 Write property test for explanation content in `src/recommendation-engine/recommendations.property16.test.ts`": {
+      "status": "passed",
+      "lastRunTimestamp": 1784194237571
+    },
+    "7.4 Write property test for action-type enum membership in `src/recommendation-engine/recommendations.property17.test.ts`": {
+      "status": "passed",
+      "lastRunTimestamp": 1784194238720
+    },
+    "7.5 Write property test for descending-impact sort order in `src/recommendation-engine/recommendations.property19.test.ts`": {
+      "status": "passed",
+      "lastRunTimestamp": 1784194239844
+    },
+    "7.6 Write property test for contiguous rank permutation in `src/recommendation-engine/recommendations.property20.test.ts`": {
+      "status": "passed",
+      "lastRunTimestamp": 1784194240832
+    },
+    "7.7 Write property test for deterministic generation in `src/recommendation-engine/recommendations.property21.test.ts`": {
+      "status": "passed",
+      "lastRunTimestamp": 1784194241933
+    },
+    "7.8 Write property test for removal of prior actions on drop below Moderate in `src/recommendation-engine/recommendations.property22.test.ts`": {
+      "status": "passed",
+      "lastRunTimestamp": 1784194242949
+    }
+  },
+  "executionHistory": {}
+}
