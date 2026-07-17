@@ -953,3 +953,8 @@ process.on("unhandledRejection", (reason: unknown) => {
 export default async function startStadiumServer(): Promise<void> {
   await startServer();
 }
+
+startStadiumServer().catch((err) => {
+  console.error("[server] Fatal error during startup:", err);
+  process.exit(1);
+});
